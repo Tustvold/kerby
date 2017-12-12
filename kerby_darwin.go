@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// +build !darwin
+// +build darwin
 
 // Package kerby is a cgo wrapper for Kerberos GSSAPI
 package kerby
 
 /*
-#cgo CFLAGS: -std=gnu99
-#cgo LDFLAGS: -lgssapi_krb5 -lkrb5 -lk5crypto -lcom_err
+#cgo CFLAGS: -std=gnu99 -I/usr/local/opt/krb5/include -arch x86_64
+#cgo CPPFLAGS: -I/usr/local/opt/krb5/include -arch x86_64
+#cgo LDFLAGS: -L/usr/local/opt/krb5/lib -lgssapi_krb5 -lkrb5 -lk5crypto -lcom_err
 #include "kerberosgss.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -118,6 +119,15 @@ func (kc *KerbClient) Clean() {
 	}
 }
 
+// On OSX there is a pragma that sets 16-bit struct alignment
+// Consequently go can't interpret the struct's principal method
+// As it is at a 32-bit offset and golang only supports 64-bit offsets
+// This method works around this
+func Krb5KeytabGetPrincipal(entry C.krb5_keytab_entry) C.krb5_principal {
+	var ptr = unsafe.Pointer(&entry)
+	return *(*C.krb5_principal)(unsafe.Pointer(uintptr(ptr) + uintptr(4)))
+}
+
 // Returns the service principal for the server given a service type and
 // hostname. Adopted from PyKerberos.
 func ServerPrincipalDetails(service, hostname string) (string, error) {
@@ -152,7 +162,7 @@ func ServerPrincipalDetails(service, hostname string) (string, error) {
 			break
 		}
 
-		code = C.krb5_unparse_name(kcontext, entry.principal, &pname)
+		code = C.krb5_unparse_name(kcontext, Krb5KeytabGetPrincipal(entry), &pname)
 		if code != 0 {
 			return "", fmt.Errorf("Cannot parse principal name from keytab: %d", int(code))
 		}
